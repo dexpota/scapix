@@ -56,6 +56,27 @@ foreach(bridge ${bridges})
     endif()
 endforeach()
 
+file(GLOB_RECURSE objc_bridge_sources CONFIGURE_DEPENDS
+        ${SCAPIX_ROOT}/source/scapix/link/objc/*.*
+        ${SCAPIX_ROOT}/source/scapix/bridge/objc/*.*)
+
+set_source_files_properties(${objc_bridge_sources} PROPERTIES HEADER_FILE_ONLY TRUE)
+
+# If we want to generate a framework, maybe we should add a scapix property like SCAPIX_GENERATE_FRAMEWORK
+if (${CMAKE_GENERATOR} MATCHES "Xcode")
+    foreach(src IN LISTS objc_bridge_sources)
+        # Compatible only with CMake 3.20
+        cmake_path(RELATIVE_PATH src BASE_DIRECTORY "${SCAPIX_ROOT}/source/scapix" OUTPUT_VARIABLE RELATIVE_SRC_PATH)
+        cmake_path(REMOVE_FILENAME RELATIVE_SRC_PATH OUTPUT_VARIABLE RELATIVE_DIR_PATH)
+
+        # We might need a more general solution, compatible with older versions of CMake
+        # string(REGEX REPLACE ${SCAPIX_ROOT}/source/scapix "" RELATIVE_SRC_PATH ${src})
+        # cmake_path(REMOVE_FILENAME RELATIVE_SRC_PATH OUTPUT_VARIABLE RELATIVE_DIR_PATH)
+
+        set_source_files_properties(${src} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/${RELATIVE_DIR_PATH})
+    endforeach()
+endif (${CMAKE_GENERATOR} MATCHES "Xcode")
+
 if(${SCAPIX_BRIDGE} STREQUAL objc)
     target_compile_options(scapix PUBLIC "-fobjc-arc")
     set_source_files_properties(${SCAPIX_ROOT}/source/scapix/bridge/objc/BridgeObject.mm PROPERTIES COMPILE_OPTIONS "-fno-objc-arc")
