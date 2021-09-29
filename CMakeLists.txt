@@ -56,15 +56,15 @@ foreach(bridge ${bridges})
     endif()
 endforeach()
 
-file(GLOB_RECURSE objc_bridge_sources CONFIGURE_DEPENDS
-        ${SCAPIX_ROOT}/source/scapix/link/objc/*.*
-        ${SCAPIX_ROOT}/source/scapix/bridge/objc/*.*)
+file(GLOB_RECURSE objc_bridge_headers CONFIGURE_DEPENDS
+        ${SCAPIX_ROOT}/source/scapix/link/objc/*.h
+        ${SCAPIX_ROOT}/source/scapix/bridge/objc/*.h)
 
-set_source_files_properties(${objc_bridge_sources} PROPERTIES HEADER_FILE_ONLY TRUE)
+set_source_files_properties(${objc_bridge_headers} PROPERTIES HEADER_FILE_ONLY TRUE)
 
 # If we want to generate a framework, maybe we should add a scapix property like SCAPIX_GENERATE_FRAMEWORK
 if (${CMAKE_GENERATOR} MATCHES "Xcode")
-    foreach(src IN LISTS objc_bridge_sources)
+    foreach(src IN LISTS objc_bridge_headers)
         # Compatible only with CMake 3.20
         cmake_path(RELATIVE_PATH src BASE_DIRECTORY "${SCAPIX_ROOT}/source/scapix" OUTPUT_VARIABLE RELATIVE_SRC_PATH)
         cmake_path(REMOVE_FILENAME RELATIVE_SRC_PATH OUTPUT_VARIABLE RELATIVE_DIR_PATH)
