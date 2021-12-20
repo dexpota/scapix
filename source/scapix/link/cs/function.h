@@ -37,13 +37,78 @@ public:
 
 };
 
-// std::decay is a workaround for GCC:
-// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=82773
+// std::decay is a workaround for GCC bug (fixed in GCC 12):
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61355
 
 template <typename Type, std::decay_t<Type> Func>
 class function
 {
 private:
+
+	template <bool IsMember, typename Type_>
+	struct select;
+
+	template <typename R, typename ...Args>
+	struct select<true, R(Args...)>
+	{
+		static param_t<R> func(bridge::cs::object_base* thiz, param_t<Args>... args)
+		{
+			try
+			{
+				using class_type = member_pointer_class_t<Type>;
+
+				if constexpr (std::is_void_v<R>)
+				{
+					return (static_cast<class_type*>(thiz)->*Func)(param_cpp<Args>(args)...);
+				}
+				else
+				{
+					return param_cs<R>((static_cast<class_type*>(thiz)->*Func)(param_cpp<Args>(args)...));
+				}
+			}
+			catch (cs::exception& e)
+			{
+				set_exception(e.release());
+			}
+			catch (...)
+			{
+				set_exception();
+			}
+
+			if constexpr (!std::is_void_v<R>)
+				return {};
+		}
+	};
+
+	template <typename R, typename ...Args>
+	struct select<false, R(Args...)>
+	{
+		static param_t<R> func(param_t<Args>... args)
+		{
+			try
+			{
+				if constexpr (std::is_void_v<R>)
+				{
+					return Func(param_cpp<Args>(args)...);
+				}
+				else
+				{
+					return param_cs<R>(Func(param_cpp<Args>(args)...));
+				}
+			}
+			catch (cs::exception& e)
+			{
+				set_exception(e.release());
+			}
+			catch (...)
+			{
+				set_exception();
+			}
+
+			if constexpr (!std::is_void_v<R>)
+				return {};
+		}
+	};
 
 	static void set_exception()
 	{
@@ -55,138 +120,9 @@ private:
 		api::funcs.set_exception(e, false);
 	}
 
-	template <typename Type_>
-	struct select;
-
-	template <typename Class, typename R, typename ...Args>
-	struct select<R(Class::*)(Args...)>
-	{
-		static param_t<R> func(bridge::cs::object_base* thiz, param_t<Args>... args)
-		{
-			try
-			{
-				return param_cs<R>((static_cast<Class*>(thiz)->*Func)(param_cpp<Args>(args)...));
-			}
-			catch (cs::exception& e)
-			{
-				set_exception(e.release());
-			}
-			catch (...)
-			{
-				set_exception();
-			}
-
-			return {};
-		}
-	};
-
-	template <typename Class, typename ...Args>
-	struct select<void(Class::*)(Args...)>
-	{
-		static void func(bridge::cs::object_base* thiz, param_t<Args>... args)
-		{
-			try
-			{
-				(static_cast<Class*>(thiz)->*Func)(param_cpp<Args>(args)...);
-			}
-			catch (cs::exception& e)
-			{
-				set_exception(e.release());
-			}
-			catch (...)
-			{
-				set_exception();
-			}
-		}
-	};
-
-	template <typename Class, typename R, typename ...Args>
-	struct select<R(Class::*)(Args...)const>
-	{
-		static param_t<R> func(bridge::cs::object_base* thiz, param_t<Args>... args)
-		{
-			try
-			{
-				return param_cs<R>((static_cast<Class*>(thiz)->*Func)(param_cpp<Args>(args)...));
-			}
-			catch (cs::exception& e)
-			{
-				set_exception(e.release());
-			}
-			catch (...)
-			{
-				set_exception();
-			}
-
-			return {};
-		}
-	};
-
-	template <typename Class, typename ...Args>
-	struct select<void(Class::*)(Args...)const>
-	{
-		static void func(bridge::cs::object_base* thiz, param_t<Args>... args)
-		{
-			try
-			{
-				(static_cast<Class*>(thiz)->*Func)(param_cpp<Args>(args)...);
-			}
-			catch (cs::exception& e)
-			{
-				set_exception(e.release());
-			}
-			catch (...)
-			{
-				set_exception();
-			}
-		}
-	};
-
-	template <typename R, typename ...Args>
-	struct select<R(Args...)>
-	{
-		static param_t<R> func(param_t<Args>... args)
-		{
-			try
-			{
-				return param_cs<R>(Func(param_cpp<Args>(args)...));
-			}
-			catch (cs::exception& e)
-			{
-				set_exception(e.release());
-			}
-			catch (...)
-			{
-				set_exception();
-			}
-
-			return {};
-		}
-	};
-
-	template <typename ...Args>
-	struct select<void(Args...)>
-	{
-		static void func(param_t<Args>... args)
-		{
-			try
-			{
-				Func(param_cpp<Args>(args)...);
-			}
-			catch (cs::exception& e)
-			{
-				set_exception(e.release());
-			}
-			catch (...)
-			{
-				set_exception();
-			}
-		}
-	};
-
 public:
 
-	inline static constexpr auto value = &select<Type>::func;
+	inline static constexpr auto value = select<std::is_member_pointer_v<Type>, remove_function_qualifiers_t<member_pointer_type_t<std::remove_pointer_t<Type>>>>::func;
 
 };
 

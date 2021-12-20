@@ -4,17 +4,9 @@ project(scapix CXX)
 
 find_package(ScapixBin REQUIRED)
 
-if(NOT SCAPIX_BRIDGE)
-    set(SCAPIX_BRIDGE cpp)
-endif()
-
-if(NOT SCAPIX_PLATFORM)
-    set(SCAPIX_PLATFORM generic)
-endif()
-
-if(NOT SCAPIX_JAVA_API)
-    set(SCAPIX_JAVA_API jdk-11.0.2)
-endif()
+set(SCAPIX_BRIDGE "cpp" CACHE STRING "cpp, java, objc, python, js, cs")
+set(SCAPIX_PLATFORM "generic" CACHE STRING "subfolder of 'platform' folder: generic, ios, android, macos, windows, linux, etc.")
+set(SCAPIX_JAVA_API "jdk-11.0.2" CACHE STRING "subfolder of 'scapix/java_api' folder: jdk-11.0.2, android-28, etc.")
 
 set(SCAPIX_ROOT ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH "")
 
@@ -94,7 +86,24 @@ if(${SCAPIX_BRIDGE} STREQUAL java)
 endif()
 
 if(${SCAPIX_BRIDGE} STREQUAL java AND NOT ANDROID)
+    # Save CMAKE_FIND_FRAMEWORK
+    if(DEFINED CMAKE_FIND_FRAMEWORK)
+        set(SCAPIX_CMAKE_FIND_FRAMEWORK ${CMAKE_FIND_FRAMEWORK})
+    else()
+        unset(SCAPIX_CMAKE_FIND_FRAMEWORK)
+    endif()
+
+    set(CMAKE_FIND_FRAMEWORK LAST)
     find_package(JNI REQUIRED)
+
+    # Restore CMAKE_FIND_FRAMEWORK
+    if(DEFINED SCAPIX_CMAKE_FIND_FRAMEWORK)
+        set(CMAKE_FIND_FRAMEWORK ${SCAPIX_CMAKE_FIND_FRAMEWORK})
+        unset(SCAPIX_CMAKE_FIND_FRAMEWORK)
+    else()
+        unset(CMAKE_FIND_FRAMEWORK)
+    endif()
+
     target_include_directories(scapix PUBLIC ${JNI_INCLUDE_DIRS})
     target_link_libraries(scapix PUBLIC ${JNI_LIBRARIES})
 endif()
@@ -139,14 +148,6 @@ foreach(import_target ${SCAPIX_IMPORT_TARGETS})
 endforeach()
 set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 
-set(SCAPIX_BRIDGE "cpp" CACHE STRING "cpp, java, objc, python, js, cs")
-#set(SCAPIX_PLATFORM "generic" CACHE STRING "subfolder of 'platform' folder: ios, android, macos, windows, linux, etc.")
-#set(SCAPIX_JAVA_API "android-28" CACHE STRING "subfolder of 'scapix/java_api' folder: jdk-11.0.2, android-28, etc.")
-
-if(NOT DEFINED SCAPIX_BRIDGE)
-    message(FATAL_ERROR "SCAPIX_BRIDGE not defined (cpp, java, objc, python, js, cs)")
-endif()
-
 # to do: remove duplication
 set(bridges
     "cpp"
@@ -188,6 +189,7 @@ get_target_property(scapix_position_independent_code ${target} POSITION_INDEPEND
 set_target_properties(scapix PROPERTIES POSITION_INDEPENDENT_CODE ${scapix_position_independent_code})
 
 if(${SCAPIX_BRIDGE} STREQUAL python)
+    set(PYBIND11_FINDPYTHON ON)
     find_package(Pybind11 REQUIRED)
     target_link_libraries(${target} PRIVATE pybind11::module)
     set_target_properties(${target} PROPERTIES PREFIX "${PYTHON_MODULE_PREFIX}" SUFFIX "${PYTHON_MODULE_EXTENSION}")
@@ -511,10 +513,10 @@ foreach(bridge_header ${bridge_headers})
 
     add_custom_command(
             OUTPUT ${generated_sources}
-            COMMAND ${CMAKE_COMMAND} -E env ${scapix_clang_env} ${SCAPIX_EXE_DIR}/${CMAKE_HOST_SYSTEM_NAME}-${CMAKE_HOST_SYSTEM_PROCESSOR}/scapix -scapix-domain=${domain} ${bridge_header} -- -xc++ -std=c++17 ${scapix_clang_config} "$<$<BOOL:${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}>:-I$<JOIN:${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES},;-I>>" "$<$<BOOL:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>>:-I$<JOIN:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>,;-I>>" "$<$<BOOL:$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>>:-D$<JOIN:$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>,;-D>>"
-            DEPENDS ${bridge_header_absolute}
-            IMPLICIT_DEPENDS CXX ${bridge_header_absolute}
-            WORKING_DIRECTORY ${PROJECT_ROOT}
+            COMMAND ${CMAKE_COMMAND} -E env "${scapix_clang_env}" "${SCAPIX_EXE_DIR}/${CMAKE_HOST_SYSTEM_NAME}-${CMAKE_HOST_SYSTEM_PROCESSOR}/scapix" -scapix-domain=${domain} ${bridge_header} -- -xc++ -std=$<IF:$<IN_LIST:cxx_std_23,$<TARGET_PROPERTY:${target},COMPILE_FEATURES>>,c++2b,$<IF:$<IN_LIST:cxx_std_20,$<TARGET_PROPERTY:${target},COMPILE_FEATURES>>,c++20,c++17>> ${scapix_clang_config} "$<$<BOOL:${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES}>:-I$<JOIN:${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES},;-I>>" "$<$<BOOL:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>>:-I$<JOIN:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>,;-I>>" "$<$<BOOL:$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>>:-D$<JOIN:$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>,;-D>>"
+            DEPENDS "${bridge_header_absolute}" # "${SCAPIX_EXE}"
+            IMPLICIT_DEPENDS CXX "${bridge_header_absolute}"
+            WORKING_DIRECTORY "${PROJECT_ROOT}"
             COMMENT "Running Scapix Bridge for ${bridge_header_relative}"
             COMMAND_EXPAND_LISTS
             VERBATIM

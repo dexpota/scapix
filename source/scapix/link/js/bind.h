@@ -7,7 +7,7 @@
 #ifndef SCAPIX_LINK_JS_BIND_H
 #define SCAPIX_LINK_JS_BIND_H
 
-#include <emscripten/val.h>
+#include <emscripten/bind.h>
 #include <scapix/link/js/convert.h>
 
 namespace scapix {
@@ -18,84 +18,107 @@ namespace js {
 //using param = std::conditional_t<std::experimental::is_detected_v<has_convert_cpp_t<emscripten::val, T>>, emscripten::val, T>;
 
 template <typename T>
-using param = emscripten::val;
+struct param
+{
+	using type = emscripten::val;
+};
 
-// Clang bug
+template<>
+struct param<void>
+{
+	using type = void;
+};
 
-// template <typename Class, typename... Args>
-// std::shared_ptr<Class> constructor(param<Args>... args)
-// {
-// 	return std::make_shared<Class>(convert_cpp<Args>(args)...);
-// }
+template <typename T>
+using param_t = typename param<T>::type;
+
+// Clang bug:
+// https://bugs.llvm.org/show_bug.cgi?id=42805
+
+//template <typename Class, typename... Args>
+//std::shared_ptr<Class> constructor(param_t<Args>... args)
+//{
+//	return std::make_shared<Class>(convert_cpp<Args>(std::forward<param_t<Args>>(args))...);
+//}
 
 template <typename Class, typename... Args>
-struct constructor
+struct constructor_impl
 {
-	static std::shared_ptr<Class> func(param<Args>... args)
+	static std::shared_ptr<Class> func(param_t<Args>... args)
 	{
-		return std::make_shared<Class>(convert_cpp<Args>(args)...);
+		return std::make_shared<Class>(convert_cpp<Args>(std::forward<param_t<Args>>(args))...);
 	}
 };
 
+template <typename Class, typename... Args>
+constexpr auto constructor = &constructor_impl<Class, Args...>::func;
+
 template <typename Signature, Signature Function>
-struct function
+struct function_impl
 {
-	template <typename = Signature>
+	template <bool IsMember = std::is_member_pointer_v<Signature>, typename Type = remove_function_qualifiers_t<member_pointer_type_t<std::remove_pointer_t<Signature>>>>
 	struct select;
 
 	template <typename R, typename... Args>
-	struct select<R(Args...)>
+	struct select<true, R(Args...)>
 	{
-		static param<R> func(param<Args>... args)
+		using class_type = member_pointer_class_t<Signature>;
+
+		static param_t<R> func(class_type& obj, param_t<Args>... args)
 		{
-			return convert_js<param<R>>(Function(convert_cpp<Args>(args)...));
+			if constexpr (std::is_void_v<R>)
+			{
+				return (obj.*Function)(convert_cpp<Args>(std::forward<param_t<Args>>(args))...);
+			}
+			else
+			{
+				return convert_js<param_t<R>>((obj.*Function)(convert_cpp<Args>(std::forward<param_t<Args>>(args))...));
+			}
 		}
 	};
 
-	template <typename... Args>
-	struct select<void(Args...)>
+	template <typename R, typename... Args>
+	struct select<false, R(Args...)>
 	{
-		static void func(param<Args>... args)
+		static param_t<R> func(param_t<Args>... args)
 		{
-			Function(convert_cpp<Args>(args)...);
+			if constexpr (std::is_void_v<R>)
+			{
+				return Function(convert_cpp<Args>(std::forward<param_t<Args>>(args))...);
+			}
+			else
+			{
+				return convert_js<param_t<R>>(Function(convert_cpp<Args>(std::forward<param_t<Args>>(args))...));
+			}
 		}
 	};
+};
 
-	template <typename R, typename Class, typename... Args>
-	struct select<R(Class::*)(Args...)>
-	{
-		static param<R> func(Class& thiz, param<Args>... args)
-		{
-			return convert_js<param<R>>((thiz.*Function)(convert_cpp<Args>(args)...));
-		}
-	};
+template <typename Signature, Signature Function>
+constexpr auto function = &function_impl<Signature, Function>::template select<>::func;
 
-	template <typename Class, typename... Args>
-	struct select<void(Class::*)(Args...)>
-	{
-		static void func(Class& thiz, param<Args>... args)
-		{
-			(thiz.*Function)(convert_cpp<Args>(args)...);
-		}
-	};
+template <typename T>
+class wrapper : public emscripten::wrapper<T>
+{
+public:
 
-	template <typename R, typename Class, typename... Args>
-	struct select<R(Class::*)(Args...)const>
-	{
-		static param<R> func(const Class& thiz, param<Args>... args)
-		{
-			return convert_js<param<R>>((thiz.*Function)(convert_cpp<Args>(args)...));
-		}
-	};
+	using emscripten::wrapper<T>::wrapper;
 
-	template <typename Class, typename... Args>
-	struct select<void(Class::*)(Args...)const>
+protected:
+
+    template<typename R, typename... Args>
+    R call(const char* name, Args&&... args) const
 	{
-		static void func(const Class& thiz, param<Args>... args)
-		{
-			(thiz.*Function)(convert_cpp<Args>(args)...);
-		}
-	};
+			if constexpr (std::is_void_v<R>)
+			{
+		        return emscripten::wrapper<T>::template call<param_t<R>>(name, convert_js<param_t<Args>>(std::forward<Args>(args))...);
+			}
+			else
+			{
+		        return convert_cpp<R>(emscripten::wrapper<T>::template call<param_t<R>>(name, convert_js<param_t<Args>>(std::forward<Args>(args))...));
+			}
+    }
+
 };
 
 } // namespace js

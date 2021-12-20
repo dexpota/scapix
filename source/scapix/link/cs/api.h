@@ -48,7 +48,7 @@ template <typename Cpp>
 using cs_type_t = typename cs_type<remove_cvref_t<Cpp>>::type;
 
 template <typename Cpp>
-using cpp_struct_t = meta::transform<member_pointer_type, typename struct_<Cpp>::fields::type>;
+using cpp_struct_t = meta::transform<member_pointer_type_t, typename struct_<Cpp>::fields::type>;
 
 template <typename Cpp>
 using cs_struct_t = meta::transform<cs_type_t, cpp_struct_t<Cpp>>;
@@ -202,7 +202,7 @@ struct cpp_api
 		catch (...)
 		{
 			#ifdef __GNUC__
-			auto str = __cxxabiv1::__cxa_current_exception_type()->name();
+			auto str = abi::__cxa_current_exception_type()->name();
 			#else
 			auto str = "unknown";
 			#endif
